@@ -4,16 +4,6 @@ require 'json'
 require 'yaml'
 require 'date'
 
-class Row
-  attr_accessor :date, :location, :user_name, :text
-  
-  def initialize( args= { :type => SYSTEM } )
-    args.each_pair do | key, value |
-      self.send("#{key}=", value)
-    end
-  end
-end
-
 
 @date = DateTime.parse('2012-12-01')
 
@@ -26,44 +16,88 @@ def convert_row(row)
   end  
   
   if date < @date
-    Row.new(
+    text = row['source']
+    {
+      id: row['lang'].split('/').last,
       date: row['created_at'],
       location: row['user profile description'],
-      text: row['source'],
-      user_name: row['user_followers_count']
-    )
+      normalized_location: normalize_location(row['user profile description']),
+      text: text,
+      user_name: row['user_followers_count'],
+      user_screen_name: row['user_name'],
+      perspective: normalize_perspective(text),
+      tags: normalize_tags(text)
+    }
   else
-   Row.new(
-     date: row['created_at'],
-     location: row['user profile location'],
-     text: row['text'],
-     user_name: row['user_name']
-   )
+    text = row['text']
+   {
+      id: row['permanent link'].split('/').last,
+      date: row['created_at'],
+      location: row['user profile location'],
+      normalized_location: normalize_location(row['user profile location']),
+      text: text,
+      user_name: row['user_name'],
+      user_screen_name: row['user_screen_name'],
+      perspective: normalize_perspective(text),
+      tags: normalize_tags(text)
+
+   }
   end		  
 
 end
 
+#!/usr/bin/env ruby
 
-file = File.open('monusco.json').read
-json = JSON.parse(file)
+def normalize_location(location)
+  case location
+  when /kgl|rwd|kigali|rwanda|butare|huye|gisenye/i
+    return 'rwanda'
+  when /drc|congo|goma|kinshasa|bukavu|masis|kivu|kasai|zaire|kongo/i
+    return 'drc'
+  when /uganda|kampala|entebbe/i
+    return 'uganda'
+  else
+    return 'international'
+  end
+end
 
-rows = json.map do |j|
-  convert_row(j)
+def normalize_perspective(text)
+  if text =~ /#monuseless/i
+    return 'useless'
+  else
+    return nil
+  end
+end
+
+def normalize_tags(text)
+  tags = text.scan(/(?:\s|^)(?:#(?!(?:\d+|\w+?_|_\w+?)(?:\s|$)))(\w+)(?=\s|$)/i).flatten.map!(&:downcase).join(' ')
+end
+
+ 
+lines = CSV.open('data/original/monusco.csv').readlines
+keys = lines.delete lines.first
+ 
+data = lines.map do |values|
+  hash = Hash[keys.zip(values)]
+  convert_row(hash)
 end.compact
 
-#rows.each {|r| puts r }
 
-_rows = []
-rows.each do |r|
- _rows << r if r.text =~ /#monuseless/i
+File.open("data/monusco.json","w") do |f|
+  f.puts JSON.pretty_generate(data)
 end
 
-_rows.group_by(&:location).each do |loc, r|
-  puts "==============="
-  puts "#{loc}"
-  r.each {|_r| puts _r.text}
-  puts
-  puts
-  puts
-end
+# _rows = []
+# rows.each do |r|
+#  _rows << r if r.text =~ /#monuseless/i
+# end
+
+# _rows.group_by(&:location).each do |loc, r|
+#   puts "==============="
+#   puts "#{loc}"
+#   r.each {|_r| puts _r.text}
+#   puts
+#   puts
+#   puts
+# end
 
